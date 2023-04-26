@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod actor;
+pub mod api;
 pub mod helper;
+pub mod jsonrpc_types;
 pub mod pb;
 pub mod proxy;
 pub mod response;
@@ -10,10 +12,12 @@ pub mod service;
 
 // use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
-// use jsonrpsee::rpc_params;
 use jsonrpsee::server::ServerBuilder;
+use jsonrpsee::RpcModule;
 pub use pb::*;
 
+use crate::api::account_api::AccountAPI;
+use crate::api::RoochRpcModule;
 use crate::os_service_client::OsServiceClient;
 use crate::{
     actor::executor::ServerActor,
@@ -30,6 +34,7 @@ use moveos::moveos::MoveOS;
 use moveos_common::config::load_config;
 use moveos_statedb::StateDB;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::net::SocketAddr;
 use tokio::signal::ctrl_c;
 use tokio::signal::unix::{signal, SignalKind};
@@ -41,6 +46,22 @@ use tracing::info;
 pub trait Execute {
     type Res;
     async fn execute(&self) -> Result<Self::Res>;
+}
+
+pub struct RpcModuleBuilder {
+    module: RpcModule<()>,
+}
+
+impl RpcModuleBuilder {
+    pub fn new() -> Self {
+        Self {
+            module: RpcModule::new(()),
+        }
+    }
+
+    pub fn register_module<M: RoochRpcModule>(&mut self, module: M) -> Result<()> {
+        Ok(self.module.merge(module.rpc())?)
+    }
 }
 
 // Start json-rpc server
@@ -58,11 +79,19 @@ pub async fn start_server() -> Result<()> {
         .await?;
     let manager = ServerProxy::new(actor.into());
     let rpc_service = RoochServer::new(manager);
-    let server = ServerBuilder::default().build(&addr).await?;
 
-    let handle = server.start(rpc_service.into_rpc())?;
+    // let server = ServerBuilder::default().build(&addr).await?;
+    let mut rpc_module_builder = RpcModuleBuilder::new();
+    let  rpc_module_builder = register_rpc_methods(rpc_module_builder);
+    // let rpc_api = build_rpc_api(rpc_api);
+    let server = ServerBuilder::default().build(&addr).await?;
+    let methods_names = rpc_module_builder.module.method_names().collect::<Vec<_>>();
+
+    // let handle = server.start(rpc_service.into_rpc())?;
+    let handle = server.start(rpc_module_builder.module)?;
 
     info!("starting listening {:?}", addr);
+    info!("Available JSON-RPC methods : {:?}", methods_names);
 
     let mut sig_int = signal(SignalKind::interrupt()).unwrap();
     let mut sig_term = signal(SignalKind::terminate()).unwrap();
@@ -78,6 +107,26 @@ pub async fn start_server() -> Result<()> {
     info!("Shutdown Sever");
 
     Ok(())
+}
+
+fn register_rpc_methods(mut rpc_module_builder: RpcModuleBuilder) -> RpcModuleBuilder {
+    rpc_module_builder.register_module(AccountAPI::new());
+    rpc_module_builder
+}
+
+fn build_rpc_api<M: Send + Sync + 'static>(mut rpc_module: RpcModule<M>) -> RpcModule<M> {
+    let mut available_methods = rpc_module.method_names().collect::<Vec<_>>();
+    available_methods.sort();
+
+    rpc_module
+        .register_method("rpc_methods", move |_, _| {
+            Ok(json!({
+                "methods": available_methods,
+            }))
+        })
+        .expect("infallible all other methods have their own address space");
+
+    rpc_module
 }
 
 /// For grpc
@@ -97,6 +146,7 @@ impl OsServer {
 pub enum Command {
     Say(SayOptions),
     Start(Start),
+    StartHttp(StartHttp),
 }
 
 #[async_trait]
@@ -110,6 +160,7 @@ impl Execute for Command {
                 Ok(())
             }
             Start(start) => start.execute().await,
+            StartHttp(start_http) => start_http.execute().await,
         }
     }
 }
@@ -168,6 +219,17 @@ impl Execute for Start {
     type Res = ();
     async fn execute(&self) -> Result<Self::Res> {
         start_grpc_server().await
+    }
+}
+
+#[derive(Debug, Parser, Serialize, Deserialize)]
+pub struct StartHttp {}
+
+#[async_trait]
+impl Execute for StartHttp {
+    type Res = ();
+    async fn execute(&self) -> Result<Self::Res> {
+        start_server().await
     }
 }
 
