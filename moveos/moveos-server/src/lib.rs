@@ -64,24 +64,24 @@ impl RpcModuleBuilder {
     }
 }
 
-// Start json-rpc server
-pub async fn start_server() -> Result<()> {
+// Start json-rpc http server
+pub async fn start_jsonrpc_http_server() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     let config = load_config()?;
 
-    let addr: SocketAddr = format!("{}:{}", config.server.host, config.server.port).parse()?;
+    let addr: SocketAddr = format!("{}:{}", config.http_server.host, config.http_server.port).parse()?;
 
-    let actor_system = ActorSystem::global_system();
-    let moveos = MoveOS::new(StateDB::new_with_memory_store())?;
-    let actor = ServerActor::new(moveos)
-        .into_actor(Some("Server"), &actor_system)
-        .await?;
-    let manager = ServerProxy::new(actor.into());
-    let rpc_service = RoochServer::new(manager);
+    // let actor_system = ActorSystem::global_system();
+    // let moveos = MoveOS::new(StateDB::new_with_memory_store())?;
+    // let actor = ServerActor::new(moveos)
+    //     .into_actor(Some("Server"), &actor_system)
+    //     .await?;
+    // let manager = ServerProxy::new(actor.into());
+    // let rpc_service = RoochServer::new(manager);
 
     // let server = ServerBuilder::default().build(&addr).await?;
-    let mut rpc_module_builder = RpcModuleBuilder::new();
+    let  rpc_module_builder = RpcModuleBuilder::new();
     let  rpc_module_builder = register_rpc_methods(rpc_module_builder);
     // let rpc_api = build_rpc_api(rpc_api);
     let server = ServerBuilder::default().build(&addr).await?;
@@ -90,7 +90,7 @@ pub async fn start_server() -> Result<()> {
     // let handle = server.start(rpc_service.into_rpc())?;
     let handle = server.start(rpc_module_builder.module)?;
 
-    info!("starting listening {:?}", addr);
+    info!("JSON-RPC HTTP Server start listening {:?}", addr);
     info!("Available JSON-RPC methods : {:?}", methods_names);
 
     let mut sig_int = signal(SignalKind::interrupt()).unwrap();
@@ -110,11 +110,12 @@ pub async fn start_server() -> Result<()> {
 }
 
 fn register_rpc_methods(mut rpc_module_builder: RpcModuleBuilder) -> RpcModuleBuilder {
-    rpc_module_builder.register_module(AccountAPI::new());
+    rpc_module_builder.register_module(AccountAPI::new()).unwrap();
     rpc_module_builder
 }
 
-fn build_rpc_api<M: Send + Sync + 'static>(mut rpc_module: RpcModule<M>) -> RpcModule<M> {
+
+fn _build_rpc_api<M: Send + Sync + 'static>(mut rpc_module: RpcModule<M>) -> RpcModule<M> {
     let mut available_methods = rpc_module.method_names().collect::<Vec<_>>();
     available_methods.sort();
 
@@ -177,7 +178,7 @@ impl Execute for SayOptions {
 
     // Test server liveness
     async fn execute(&self) -> Result<Self::Res> {
-        let url = load_config()?.server.url(false);
+        let url = load_config()?.rpc_server.url(false);
         println!("url: {:?}", url);
 
         let mut client = OsServiceClient::connect(url).await?;
@@ -218,7 +219,8 @@ pub struct Start {}
 impl Execute for Start {
     type Res = ();
     async fn execute(&self) -> Result<Self::Res> {
-        start_grpc_server().await
+        // Ok(start_server().await?)
+        Ok(start_grpc_server().await?)
     }
 }
 
@@ -229,9 +231,10 @@ pub struct StartHttp {}
 impl Execute for StartHttp {
     type Res = ();
     async fn execute(&self) -> Result<Self::Res> {
-        start_server().await
+        Ok(start_jsonrpc_http_server().await?)
     }
 }
+
 
 #[derive(Debug, Parser, Serialize, Deserialize)]
 pub struct PublishPackage {
@@ -251,7 +254,7 @@ impl PublishPackage {
 pub async fn start_grpc_server() -> Result<()> {
     let config = load_config()?;
 
-    let addr: SocketAddr = format!("{}:{}", config.server.host, config.server.port).parse()?;
+    let addr: SocketAddr = format!("{}:{}", config.rpc_server.host, config.rpc_server.port).parse()?;
 
     let actor_system = ActorSystem::global_system();
     let moveos = MoveOS::new(StateDB::new_with_memory_store())?;
@@ -262,8 +265,19 @@ pub async fn start_grpc_server() -> Result<()> {
     let svc = OsSvc::new(manager);
     let svc = OsServiceServer::new(svc);
 
-    println!("Listening on {addr:?}");
+    println!("gRPC Server start listening on {addr:?}");
     Server::builder().add_service(svc).serve(addr).await?;
+
+    Ok(())
+}
+
+pub async fn start_server() -> Result<()> {
+    start_grpc_server().await.unwrap();
+    // start_jsonrpc_http_server().await.unwrap();
+
+    tokio::spawn(async move {
+        start_jsonrpc_http_server().await.unwrap();
+    });
 
     Ok(())
 }

@@ -14,7 +14,8 @@ use crate::error::Error;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Config {
-    pub server: ServerConfig,
+    pub rpc_server: ServerConfig,
+    pub http_server: ServerConfig,
 }
 
 impl Config {
@@ -42,7 +43,7 @@ impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             host: "0.0.0.0".to_string(),
-            port: 50052,
+            port: 50051,
         }
     }
 }
@@ -65,7 +66,11 @@ mod tests {
         assert_eq!(
             config,
             Config {
-                server: ServerConfig {
+                rpc_server: ServerConfig {
+                    host: "0.0.0.0".to_string(),
+                    port: 50051
+                },
+                http_server: ServerConfig {
                     host: "0.0.0.0".to_string(),
                     port: 50051
                 }
