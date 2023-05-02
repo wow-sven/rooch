@@ -16,7 +16,7 @@ use jsonrpsee::server::ServerBuilder;
 use jsonrpsee::RpcModule;
 pub use pb::*;
 
-use crate::api::account_api::AccountAPI;
+use crate::api::account::AccountServer;
 use crate::api::RoochRpcModule;
 use crate::os_service_client::OsServiceClient;
 use crate::{
@@ -80,6 +80,8 @@ pub async fn start_jsonrpc_http_server() -> Result<()> {
     // let manager = ServerProxy::new(actor.into());
     // let rpc_service = RoochServer::new(manager);
 
+    // let handle = server.start(rpc_service.into_rpc())?;
+
     // let server = ServerBuilder::default().build(&addr).await?;
     let  rpc_module_builder = RpcModuleBuilder::new();
     let  rpc_module_builder = register_rpc_methods(rpc_module_builder);
@@ -87,7 +89,6 @@ pub async fn start_jsonrpc_http_server() -> Result<()> {
     let server = ServerBuilder::default().build(&addr).await?;
     let methods_names = rpc_module_builder.module.method_names().collect::<Vec<_>>();
 
-    // let handle = server.start(rpc_service.into_rpc())?;
     let handle = server.start(rpc_module_builder.module)?;
 
     info!("JSON-RPC HTTP Server start listening {:?}", addr);
@@ -110,7 +111,7 @@ pub async fn start_jsonrpc_http_server() -> Result<()> {
 }
 
 fn register_rpc_methods(mut rpc_module_builder: RpcModuleBuilder) -> RpcModuleBuilder {
-    rpc_module_builder.register_module(AccountAPI::new()).unwrap();
+    rpc_module_builder.register_module(AccountServer::new()).unwrap();
     rpc_module_builder
 }
 
