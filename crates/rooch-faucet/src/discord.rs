@@ -21,6 +21,7 @@ use std::{
     sync::{atomic::Ordering, Arc},
     time::Duration,
 };
+use rooch_types::multichain_id::RoochMultiChainID::Rooch;
 
 #[derive(Parser, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
@@ -48,15 +49,20 @@ impl App {
 
         match value {
             CommandDataOptionValue::String(address) => {
-                let request = match address.starts_with("0x") {
-                    true => FaucetRequest::FixedRoochAddressRequest(FixedRoochAddressRequest {
-                        recipient: RoochAddress::from_str(address.as_str())
-                            .expect("Invalid address"),
-                    }),
-                    false => FaucetRequest::FixedBTCAddressRequest(FixedBTCAddressRequest {
-                        recipient: BitcoinAddress::from_str(address.as_str())
-                            .expect("Invalid address"),
-                    }),
+                let request = if address.starts_with("rooch") || address.starts_with("0x") {
+                    let recipient = if address.starts_with("rooch") {
+                        RoochAddress::from_bech32(address.as_str()).expect("Invalid address")
+                    } else {
+                        RoochAddress::from_str(address.as_str()).expect("Invalid address")
+                    };
+
+                    FaucetRequest::FixedRoochAddressRequest(FixedRoochAddressRequest {
+                        recipient,
+                    })
+                } else {
+                    FaucetRequest::FixedBTCAddressRequest(FixedBTCAddressRequest {
+                        recipient: BitcoinAddress::from_str(address.as_str()).expect("Invalid address"),
+                    })
                 };
 
                 if let Err(err) = self.request(request).await {
