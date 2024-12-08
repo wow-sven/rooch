@@ -3,4 +3,3 @@
 
 export * from './provider/index.js'
 export * from './hooks/index.js'
-export * from './wellet/index.js'
